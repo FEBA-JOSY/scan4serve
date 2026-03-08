@@ -29,6 +29,7 @@ export interface User {
     email: string
     role: UserRole
     restaurantId?: string | null
+    restaurant?: Restaurant | null
     isActive: boolean
     createdBy?: string
     createdAt: string
@@ -94,7 +95,7 @@ export interface AuditLog {
     id: string
     userId: string
     action: string
-    details?: any
+    details?: Record<string, unknown>
     timestamp: string
     user?: User
 }

@@ -24,23 +24,28 @@ export async function GET(req: NextRequest) {
 // POST /api/manager/tables — add a table and generate QR URL
 export async function POST(req: NextRequest) {
     const body = await req.json()
-    const { restaurant_id, table_number } = body
+    const { restaurantId, tableNumber } = body
+
+    if (!restaurantId || !tableNumber) {
+        return NextResponse.json({ success: false, message: 'Missing restaurantId or tableNumber' }, { status: 400 })
+    }
 
     // Build QR URL (points to the customer menu page)
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
-    const qr_code_url = `${baseUrl}/menu/${restaurant_id}/${table_number}`
+    const qrCodeUrl = `${baseUrl}/menu/${restaurantId}/${tableNumber}`
 
     try {
         const table = await prisma.table.create({
             data: {
-                restaurantId: restaurant_id,
-                tableNumber: Number(table_number),
-                qrCodeUrl: qr_code_url,
+                restaurantId,
+                tableNumber: Number(tableNumber),
+                qrCodeUrl,
                 active: true
             }
         })
         return NextResponse.json({ success: true, data: table }, { status: 201 })
     } catch (error: any) {
+        console.error('Table creation error:', error)
         return NextResponse.json({ success: false, message: error.message }, { status: 500 })
     }
 }
@@ -55,11 +60,17 @@ export async function DELETE(req: NextRequest) {
     }
 
     try {
+        // First delete or handle associated orders because of onDelete: Restrict
+        await prisma.order.deleteMany({
+            where: { tableId: id }
+        })
+
         await prisma.table.delete({
             where: { id }
         })
-        return NextResponse.json({ success: true, message: 'Table deleted' })
+        return NextResponse.json({ success: true, message: 'Table and its history removed' })
     } catch (error: any) {
+        console.error('Table deletion error:', error)
         return NextResponse.json({ success: false, message: error.message }, { status: 500 })
     }
 }

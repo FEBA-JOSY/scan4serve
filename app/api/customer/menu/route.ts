@@ -10,10 +10,12 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ success: false, message: 'restaurantId required' }, { status: 400 })
     }
 
+    console.log('API Request Received:', { restaurantId });
+
     try {
         // Verify restaurant is active
         const restaurant = await prisma.restaurant.findUnique({
-            where: { id: restaurantId, isActive: true },
+            where: { id: restaurantId },
             select: {
                 id: true,
                 name: true,
@@ -24,7 +26,11 @@ export async function GET(req: NextRequest) {
         })
 
         if (!restaurant) {
-            return NextResponse.json({ success: false, message: 'Restaurant not found or inactive' }, { status: 404 })
+            return NextResponse.json({ success: false, message: 'Restaurant not found' }, { status: 404 })
+        }
+
+        if (!restaurant.isActive) {
+            return NextResponse.json({ success: false, message: 'Restaurant is inactive' }, { status: 403 })
         }
 
         if (restaurant.subscriptionStatus === 'expired') {
@@ -38,8 +44,11 @@ export async function GET(req: NextRequest) {
             orderBy: { displayOrder: 'asc' }
         })
 
+        console.log('Restaurant Found:', restaurant);
+        console.log('Categories Retrieved:', categories);
         return NextResponse.json({ success: true, data: { restaurant, categories } })
     } catch (error: any) {
+        console.error('Menu API error:', error);
         return NextResponse.json({ success: false, message: error.message }, { status: 500 })
     }
 }

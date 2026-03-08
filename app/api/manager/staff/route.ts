@@ -3,6 +3,8 @@ import { authOptions } from "../../auth/[...nextauth]/route";
 import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
+import bcrypt from "bcryptjs";
+
 export async function GET(request: Request) {
     const session = await getServerSession(authOptions);
 
@@ -42,5 +44,84 @@ export async function GET(request: Request) {
             { success: false, message: error.message },
             { status: 500 }
         );
+    }
+}
+
+export async function POST(request: Request) {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user || !['admin', 'manager'].includes(session.user.role)) {
+        return NextResponse.json({ success: false, message: "Not authorized" }, { status: 401 });
+    }
+
+    try {
+        const { name, email, role, password, restaurantId } = await request.json();
+
+        if (!name || !email || !role || !password) {
+            return NextResponse.json({ success: false, message: "Missing required fields" }, { status: 400 });
+        }
+
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) {
+            return NextResponse.json({ success: false, message: "Email already exists" }, { status: 400 });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const staff = await prisma.user.create({
+            data: {
+                name, email, role, password: hashedPassword,
+                restaurantId: restaurantId || session.user.restaurantId,
+                createdBy: session.user.id, isActive: true,
+            },
+        });
+        return NextResponse.json({ success: true, data: staff });
+    } catch (error: any) {
+        return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    }
+}
+
+export async function PATCH(request: Request) {
+    const session = await getServerSession(authOptions);
+    if (!session || !session.user || !['admin', 'manager'].includes(session.user.role)) {
+        return NextResponse.json({ success: false, message: "Not authorized" }, { status: 401 });
+    }
+
+    try {
+        const { id, name, email, role, password } = await request.json();
+
+        const dataToUpdate: any = { name, email, role };
+        if (password) {
+            dataToUpdate.password = await bcrypt.hash(password, 10);
+        }
+
+        const staff = await prisma.user.update({
+            where: { id },
+            data: dataToUpdate,
+        });
+
+        return NextResponse.json({ success: true, data: staff });
+    } catch (error: any) {
+        return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    }
+}
+
+export async function DELETE(request: Request) {
+    const session = await getServerSession(authOptions);
+
+    if (!session || !session.user || !['admin', 'manager'].includes(session.user.role)) {
+        return NextResponse.json({ success: false, message: "Not authorized" }, { status: 401 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+
+    if (!id) {
+        return NextResponse.json({ success: false, message: "Missing id" }, { status: 400 });
+    }
+
+    try {
+        await prisma.user.delete({ where: { id } });
+        return NextResponse.json({ success: true, message: "User deleted" });
+    } catch (error: any) {
+        return NextResponse.json({ success: false, message: error.message }, { status: 500 });
     }
 }

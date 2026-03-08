@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
                         id: true,
                         status: true,
                         totalAmount: true,
+                        items: true,
                         createdAt: true
                     }
                 }

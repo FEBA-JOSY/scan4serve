@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -9,7 +9,8 @@ import {
     Utensils, CheckCircle2
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
-import type { Restaurant, Category, MenuItem, Order, OrderItem } from '@/types'
+import Image from 'next/image'
+import type { Restaurant, Category, MenuItem, Order } from '@/types'
 
 export default function CustomerMenuPage() {
     const params = useParams()
@@ -26,13 +27,15 @@ export default function CustomerMenuPage() {
     const [placingOrder, setPlacingOrder] = useState(false)
     const [activeOrder, setActiveOrder] = useState<Order | null>(null)
 
-    useEffect(() => {
-        fetchMenu()
-    }, [restaurantId])
-
-    async function fetchMenu() {
+    const fetchMenu = useCallback(async () => {
         try {
             const res = await fetch(`/api/customer/menu?restaurantId=${restaurantId}`)
+            if (!res.ok) {
+                const json = await res.json()
+                toast.error(json.message || 'Failed to load menu')
+                setLoading(false)
+                return
+            }
             const json = await res.json()
             if (json.success) {
                 setRestaurant(json.data.restaurant)
@@ -41,14 +44,20 @@ export default function CustomerMenuPage() {
                     setActiveCategory(json.data.categories[0].id)
                 }
             } else {
-                toast.error(json.message)
+                toast.error(json.message || 'Failed to load menu')
             }
         } catch (error) {
-            toast.error('Failed to load menu')
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+            console.error('Menu fetch error:', errorMessage, error);
+            toast.error(`Failed to load menu: ${errorMessage}`);
         } finally {
             setLoading(false)
         }
-    }
+    }, [restaurantId])
+
+    useEffect(() => {
+        fetchMenu()
+    }, [fetchMenu])
 
     const addToCart = (item: MenuItem) => {
         setCart(prev => {
@@ -70,12 +79,13 @@ export default function CustomerMenuPage() {
             const existing = prev[itemId]
             if (!existing) return prev
             if (existing.quantity <= 1) {
-                const { [itemId]: _, ...rest } = prev
+                const rest = { ...prev }
+                delete rest[itemId]
                 return rest
             }
             return {
                 ...prev,
-                [itemId]: { ...existing, quantity: existing.quantity - 1 }
+                [itemId]: { ...existing, quantity: existing.quantity - 1 },
             }
         })
     }
@@ -100,22 +110,27 @@ export default function CustomerMenuPage() {
                         name: item.name,
                         price: item.price,
                         quantity,
-                        special_instructions: notes
+                        special_instructions: notes,
                     })),
-                    special_instructions: '' // Global notes could be added here
-                })
+                    special_instructions: '', // Global notes could be added here
+                }),
             })
 
             const json = await res.json()
-            if (json.success) {
+            console.log('Full order response:', json)
+            console.log('Response data:', json.data)
+            console.log('Response data type:', typeof json.data)
+            console.log('Response data keys:', json.data ? Object.keys(json.data) : 'null')
+            
+            if (json.success && json.data) {
                 setActiveOrder(json.data)
                 setCart({})
                 setShowCart(false)
                 toast.success('Order placed successfully! 🚀')
             } else {
-                toast.error(json.message)
+                toast.error(json.message || 'Failed to place order')
             }
-        } catch (error) {
+        } catch {
             toast.error('Failed to place order')
         } finally {
             setPlacingOrder(false)
@@ -147,7 +162,7 @@ export default function CustomerMenuPage() {
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 brand-gradient rounded-xl flex items-center justify-center glow-orange-sm">
                             {restaurant?.logoUrl ? (
-                                <img src={restaurant.logoUrl} alt={restaurant.name} className="w-full h-full object-cover rounded-xl" />
+                                <Image src={restaurant.logoUrl} alt={restaurant.name} className="w-full h-full object-cover rounded-xl" />
                             ) : (
                                 <Utensils className="w-6 h-6 text-white" />
                             )}
@@ -217,11 +232,11 @@ export default function CustomerMenuPage() {
                             <div className="grid grid-cols-1 gap-4">
                                 {filteredItems.map(item => (
                                     <div key={item.id} className="glass-card p-3 flex gap-4 fade-in group">
-                                        <div className="w-24 h-24 bg-gray-900 rounded-xl overflow-hidden flex-shrink-0 relative">
+                                        <div className="w-24 h-24 bg-gray-900 rounded-xl overflow-hidden shrink-0 relative">
                                             {item.imageUrl ? (
-                                                <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                                <Image src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                                             ) : (
-                                                <div className="w-full h-full flex items-center justify-center bg-gray-900 text-gray-800">
+                                                <div className="w-full h-full flex items-center justify-center text-gray-800">
                                                     <Utensils className="w-8 h-8" />
                                                 </div>
                                             )}
@@ -237,7 +252,7 @@ export default function CustomerMenuPage() {
                                                 <div className="flex items-start justify-between">
                                                     <h3 className="font-semibold text-white group-hover:text-orange-400 transition-colors">{item.name}</h3>
                                                     <span className={cn(
-                                                        "w-3 h-3 border-2 rounded-sm flex-shrink-0 mt-1",
+                                                        "w-3 h-3 border-2 rounded-sm shrink-0 mt-1",
                                                         item.isVeg ? "border-green-600 bg-green-600/10" : "border-red-600 bg-red-600/10"
                                                     )}>
                                                         <span className={cn(
@@ -337,9 +352,9 @@ export default function CustomerMenuPage() {
                         <div className="flex-1 overflow-y-auto p-6 space-y-6">
                             {cartItems.map(({ item, quantity, notes }) => (
                                 <div key={item.id} className="flex gap-4">
-                                    <div className="w-16 h-16 bg-gray-800 rounded-xl overflow-hidden flex-shrink-0">
+                                    <div className="w-16 h-16 bg-gray-800 rounded-xl overflow-hidden shrink-0">
                                         {item.imageUrl ? (
-                                            <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
+                                            <Image src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-700">
                                                 <Utensils className="w-6 h-6" />
@@ -411,7 +426,7 @@ export default function CustomerMenuPage() {
     )
 }
 
-function OrderTrackingView({ order, onBackToMenu }: { order: any; onBackToMenu: () => void }) {
+function OrderTrackingView({ order, onBackToMenu }: { order: Order; onBackToMenu: () => void }) {
     const [status, setStatus] = useState(order.status)
     const [estimatedTime, setEstimatedTime] = useState(order.estimatedTimeMinutes)
 
@@ -429,8 +444,8 @@ function OrderTrackingView({ order, onBackToMenu }: { order: any; onBackToMenu: 
                     }
                     setEstimatedTime(json.data.estimatedTimeMinutes)
                 }
-            } catch (error) {
-                console.error('Error polling order status:', error)
+            } catch {
+                console.error('Error polling order status');
             }
         }, 10000)
 
@@ -466,7 +481,7 @@ function OrderTrackingView({ order, onBackToMenu }: { order: any; onBackToMenu: 
 
                 {/* Live Timeline */}
                 <div className="w-full space-y-6 relative">
-                    <div className="absolute left-[11px] top-2 bottom-8 w-[2px] bg-gray-800" />
+                    <div className="absolute left-2.75 top-2 bottom-8 w-0.5 bg-gray-800" />
                     {steps.map((step, idx) => {
                         const isDone = idx < activeIndex
                         const isCurrent = idx === activeIndex

@@ -25,6 +25,7 @@ export async function GET() {
 
         return NextResponse.json({ success: true, data: formatted })
     } catch (error: any) {
+        console.error('GET error:', error)
         return NextResponse.json({ success: false, message: error.message }, { status: 500 })
     }
 }
@@ -33,6 +34,17 @@ export async function GET() {
 export async function POST(req: NextRequest) {
     const body = await req.json()
     const { name, subdomain, email, phone, address, plan, adminEmail, adminPassword, adminName } = body
+
+    // Validate required fields
+    if (!name?.trim()) {
+        return NextResponse.json({ success: false, message: 'Restaurant name is required' }, { status: 400 })
+    }
+    if (!subdomain?.trim()) {
+        return NextResponse.json({ success: false, message: 'Subdomain is required' }, { status: 400 })
+    }
+    if (!adminEmail?.trim() || !adminPassword?.trim() || !adminName?.trim()) {
+        return NextResponse.json({ success: false, message: 'Admin details are required' }, { status: 400 })
+    }
 
     try {
         const hashedPassword = await bcrypt.hash(adminPassword, 10)
@@ -69,18 +81,38 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({ success: true, data: result }, { status: 201 })
     } catch (error: any) {
-        return NextResponse.json({ success: false, message: error.message }, { status: 500 })
+        console.error('POST error:', error)
+        let message = error.message
+        if (error.code === 'P2002') {
+            if (error.meta?.target?.includes('subdomain')) {
+                message = 'This subdomain is already taken'
+            } else if (error.meta?.target?.includes('email')) {
+                message = 'This email is already in use'
+            }
+        }
+        return NextResponse.json({ success: false, message }, { status: 500 })
     }
 }
 
 // PATCH /api/superadmin/restaurants — toggle active/subscription status
 export async function PATCH(req: NextRequest) {
     const body = await req.json()
-    const { id, isActive, subscriptionStatus, subscriptionExpiresAt, plan, subdomain } = body
+    const { id, name, email, logoUrl, isActive, subscriptionStatus, subscriptionExpiresAt, plan, subdomain } = body
     const session = await getServerSession(authOptions)
+
+    if (!session?.user?.id) {
+        return NextResponse.json({ success: false, message: 'Unauthorized' }, { status: 401 })
+    }
+
+    if (!id) {
+        return NextResponse.json({ success: false, message: 'Restaurant ID is required' }, { status: 400 })
+    }
 
     try {
         const updates: any = {}
+        if (name) updates.name = name
+        if (email) updates.email = email
+        if (logoUrl) updates.logoUrl = logoUrl
         if (isActive !== undefined) updates.isActive = isActive
         if (subscriptionStatus) updates.subscriptionStatus = subscriptionStatus
         if (subscriptionExpiresAt) updates.subscriptionExpiresAt = new Date(subscriptionExpiresAt)
@@ -103,6 +135,7 @@ export async function PATCH(req: NextRequest) {
 
         return NextResponse.json({ success: true, data: restaurant })
     } catch (error: any) {
+        console.error('PATCH error:', error)
         return NextResponse.json({ success: false, message: error.message }, { status: 500 })
     }
 }

@@ -33,19 +33,25 @@ export async function GET(req: NextRequest) {
             }
         })
 
-        const totalOrders = orders.length
-        const revenueToday = orders
-            .filter(o => ['served', 'completed'].includes(o.status))
-            .reduce((sum, o) => sum + Number(o.totalAmount || 0), 0)
+        const revenueGeneratingOrders = orders.filter(o => ['served', 'completed'].includes(o.status))
+        const totalOrders = revenueGeneratingOrders.length
 
-        // Best selling items (from JSON items array)
+        // Revenue should include the 10% (5% GST + 5% Service Charge) added in the bill modal
+        const revenueToday = revenueGeneratingOrders
+            .reduce((sum, o) => sum + Number(o.totalAmount || 0) * 1.10, 0)
+
+        // Best selling items (base calculation on quantity and price)
         const itemCountMap: Record<string, { name: string; count: number; revenue: number }> = {}
         orders.forEach(order => {
+            // Only count best sellers for served/completed orders for accuracy
+            if (!['served', 'completed'].includes(order.status)) return
+
             const items = order.items as any[]
             items?.forEach(item => {
                 if (!itemCountMap[item.name]) itemCountMap[item.name] = { name: item.name, count: 0, revenue: 0 }
                 itemCountMap[item.name].count += (item.quantity || 0)
-                itemCountMap[item.name].revenue += (item.price || 0) * (item.quantity || 0)
+                // Item revenue also scaled by 1.10 to match grand totals
+                itemCountMap[item.name].revenue += (item.price || 0) * (item.quantity || 0) * 1.10
             })
         })
         const bestSellers = Object.values(itemCountMap)
@@ -55,12 +61,13 @@ export async function GET(req: NextRequest) {
         // Peak hours (group by hour)
         const hourMap: Record<number, number> = {}
         orders.forEach(order => {
+            if (['cancelled'].includes(order.status)) return
             const hour = new Date(order.createdAt).getHours()
             hourMap[hour] = (hourMap[hour] ?? 0) + 1
         })
         const peakHours = Object.entries(hourMap)
             .map(([hour, count]) => ({ hour: parseInt(hour), count }))
-            .sort((a, b) => b.count - a.count)
+            .sort((a, b) => a.hour - b.hour) // Sort chronologically for the chart
 
         // All-time revenue
         const allTimeRevenueResult = await prisma.order.aggregate({
@@ -73,7 +80,8 @@ export async function GET(req: NextRequest) {
             }
         })
 
-        const totalRevenue = Number(allTimeRevenueResult._sum.totalAmount || 0)
+        // Apply 1.10 factor to all-time revenue as well
+        const totalRevenue = Number(allTimeRevenueResult._sum.totalAmount || 0) * 1.10
 
         return NextResponse.json({
             success: true,

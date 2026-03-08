@@ -37,13 +37,14 @@ export async function POST(req: NextRequest) {
                 price: Number(price),
                 imageUrl: image_url,
                 isVeg: is_veg,
-                prepTimeMinutes: prep_time_minutes,
+                prepTimeMinutes: prep_time_minutes || 15,
                 available: true
             }
         })
         return NextResponse.json({ success: true, data: menuItem }, { status: 201 })
     } catch (error: any) {
-        return NextResponse.json({ success: false, message: error.message }, { status: 500 })
+        console.error("Create menu item error:", error);
+        return NextResponse.json({ success: false, message: error.message || "Failed to create menu item" }, { status: 500 })
     }
 }
 

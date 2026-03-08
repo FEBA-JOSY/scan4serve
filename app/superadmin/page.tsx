@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from '@/components/sidebar'
 import { toast } from 'sonner'
@@ -8,7 +8,7 @@ import {
     ShieldAlert, Globe, Activity, Building2,
     Users, DollarSign, TrendingUp, Search,
     Plus, MoreVertical, CheckCircle2, XCircle,
-    Loader2, BadgeCheck, AlertCircle, ArrowUpRight
+    Loader2, AlertCircle, ArrowUpRight, Camera, Pencil
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
 import type { Restaurant, User } from '@/types'
@@ -19,16 +19,19 @@ export default function SuperAdminDashboard() {
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
     const [showOnboardModal, setShowOnboardModal] = useState(false)
+    const [editingId, setEditingId] = useState<string | null>(null)
     const [onboarding, setOnboarding] = useState(false)
     const [formData, setFormData] = useState({
         name: '',
         subdomain: '',
         email: '',
+        logoUrl: '',
         adminName: '',
         adminEmail: '',
         adminPassword: '',
         plan: 'basic'
     })
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const router = useRouter()
 
     useEffect(() => {
@@ -56,7 +59,12 @@ export default function SuperAdminDashboard() {
             const json = await res.json()
             if (json.success) {
                 setRestaurants(json.data)
+            } else {
+                toast.error(json.message || 'Failed to fetch restaurants')
             }
+        } catch (e: any) {
+            toast.error('Network error while fetching restaurants')
+            console.error(e)
         } finally {
             setLoading(false)
         }
@@ -64,31 +72,86 @@ export default function SuperAdminDashboard() {
 
     async function handleOnboard(e: React.FormEvent) {
         e.preventDefault()
+
+        // Validate form data
+        if (!formData.name.trim()) {
+            toast.error('Restaurant name is required')
+            return
+        }
+        if (!formData.subdomain.trim()) {
+            toast.error('Subdomain is required')
+            return
+        }
+
+        // Admin details only required for NEW onboarding
+        if (!editingId && (!formData.adminEmail.trim() || !formData.adminPassword.trim())) {
+            toast.error('Admin email and password are required for new restaurants')
+            return
+        }
+
         setOnboarding(true)
         try {
-            const res = await fetch('/api/superadmin/restaurants', {
-                method: 'POST',
+            const url = '/api/superadmin/restaurants'
+            const method = editingId ? 'PATCH' : 'POST'
+            const body = editingId ? {
+                id: editingId,
+                name: formData.name,
+                subdomain: formData.subdomain,
+                email: formData.email,
+                logoUrl: formData.logoUrl,
+                plan: formData.plan
+            } : formData
+
+            const res = await fetch(url, {
+                method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
+                body: JSON.stringify(body)
             })
             const json = await res.json()
             if (json.success) {
-                toast.success('Restaurant onboarded successfully!')
+                toast.success(editingId ? 'Restaurant updated!' : 'Restaurant onboarded successfully!')
                 setShowOnboardModal(false)
+                setEditingId(null)
                 fetchRestaurants()
                 setFormData({
-                    name: '', subdomain: '', email: '',
+                    name: '', subdomain: '', email: '', logoUrl: '',
                     adminName: '', adminEmail: '', adminPassword: '',
                     plan: 'basic'
                 })
             } else {
-                toast.error(json.message || 'Onboarding failed')
+                toast.error(json.message || (editingId ? 'Update failed' : 'Onboarding failed'))
             }
-        } catch (e) {
-            toast.error('Network error')
+        } catch (e: any) {
+            toast.error('Network error occurred')
+            console.error(e)
         } finally {
             setOnboarding(false)
         }
+    }
+
+    function handleEdit(restaurant: any) {
+        setEditingId(restaurant.id)
+        setFormData({
+            name: restaurant.name,
+            subdomain: restaurant.subdomain,
+            email: restaurant.email || '',
+            logoUrl: restaurant.logoUrl || '',
+            adminName: restaurant.admin?.name || '',
+            adminEmail: restaurant.admin?.email || '',
+            adminPassword: '', // Don't show password
+            plan: restaurant.plan || 'basic'
+        })
+        setShowOnboardModal(true)
+    }
+
+    function handleNewOnboard() {
+        setEditingId(null)
+        setFormData({
+            name: '', subdomain: '', email: '', logoUrl: '',
+            adminName: '', adminEmail: '', adminPassword: '',
+            plan: 'basic'
+        })
+        setShowOnboardModal(true)
     }
 
     async function toggleStatus(id: string, currentStatus: boolean) {
@@ -98,12 +161,16 @@ export default function SuperAdminDashboard() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id, isActive: !currentStatus })
             })
-            if (res.ok) {
+            const json = await res.json()
+            if (json.success) {
                 toast.success(currentStatus ? 'Restaurant deactivated' : 'Restaurant activated!')
                 fetchRestaurants()
+            } else {
+                toast.error(json.message || 'Failed to toggle status')
             }
-        } catch (e) {
-            toast.error('Status toggle failed')
+        } catch (e: any) {
+            toast.error('Network error while updating status')
+            console.error(e)
         }
     }
 
@@ -173,7 +240,7 @@ export default function SuperAdminDashboard() {
                                             />
                                         </div>
                                         <button
-                                            onClick={() => setShowOnboardModal(true)}
+                                            onClick={handleNewOnboard}
                                             className="flex items-center gap-2 brand-gradient px-6 py-2.5 rounded-xl text-xs font-black text-white glow-orange-sm active:scale-95 transition-all"
                                         >
                                             <Plus className="w-4 h-4" /> Onboard Restaurant
@@ -236,6 +303,12 @@ export default function SuperAdminDashboard() {
                                                             >
                                                                 {res.isActive ? <XCircle className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
                                                             </button>
+                                                            <button
+                                                                onClick={() => handleEdit(res)}
+                                                                className="p-2 bg-gray-900 border border-gray-800 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                                            >
+                                                                <Pencil className="w-4 h-4" />
+                                                            </button>
                                                             <button className="p-2 bg-gray-900 border border-gray-800 rounded-lg text-gray-400 hover:text-white transition-colors">
                                                                 <MoreVertical className="w-4 h-4" />
                                                             </button>
@@ -258,8 +331,10 @@ export default function SuperAdminDashboard() {
                     <div className="glass-card w-full max-w-2xl p-8 fade-in shadow-2xl overflow-y-auto max-h-[90vh]">
                         <div className="flex items-center justify-between mb-8">
                             <div>
-                                <h2 className="text-2xl font-black text-white italic">ONBOARD TENANT</h2>
-                                <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">Register new restaurant to Scan4Serve SaaS</p>
+                                <h2 className="text-2xl font-black text-white italic">{editingId ? 'EDIT RESTAURANT' : 'ONBOARD TENANT'}</h2>
+                                <p className="text-xs text-gray-500 font-bold uppercase tracking-widest mt-1">
+                                    {editingId ? 'Modify existing platform tenant settings' : 'Register new restaurant to Scan4Serve SaaS'}
+                                </p>
                             </div>
                             <button onClick={() => setShowOnboardModal(false)} className="p-2 hover:bg-gray-800 rounded-lg text-gray-500">
                                 <XCircle className="w-6 h-6" />
@@ -267,6 +342,41 @@ export default function SuperAdminDashboard() {
                         </div>
 
                         <form onSubmit={handleOnboard} className="space-y-6">
+                            <div className="flex justify-center mb-8">
+                                <div className="relative group">
+                                    <div className="w-24 h-24 bg-gray-950 border-2 border-dashed border-gray-800 rounded-3xl overflow-hidden flex items-center justify-center text-gray-700 hover:border-orange-500/50 transition-colors">
+                                        {formData.logoUrl ? (
+                                            <img src={formData.logoUrl} className="w-full h-full object-cover" alt="Logo" />
+                                        ) : (
+                                            <Camera className="w-8 h-8 opacity-50" />
+                                        )}
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className="absolute -bottom-2 -right-2 w-8 h-8 brand-gradient rounded-xl flex items-center justify-center text-white shadow-lg active:scale-95 transition-all"
+                                    >
+                                        <Plus className="w-4 h-4" />
+                                    </button>
+                                    <input
+                                        type="file"
+                                        ref={fileInputRef}
+                                        className="hidden"
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0]
+                                            if (file) {
+                                                const reader = new FileReader()
+                                                reader.onloadend = () => {
+                                                    setFormData({ ...formData, logoUrl: reader.result as string })
+                                                }
+                                                reader.readAsDataURL(file)
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div className="space-y-4">
                                     <h3 className="text-[10px] font-black text-orange-500 uppercase tracking-widest border-b border-orange-500/20 pb-2">Business Data</h3>
@@ -306,41 +416,43 @@ export default function SuperAdminDashboard() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-4">
-                                    <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-widest border-b border-blue-500/20 pb-2">Admin Account</h3>
-                                    <div>
-                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Admin Name</label>
-                                        <input
-                                            required
-                                            value={formData.adminName}
-                                            onChange={e => setFormData({ ...formData, adminName: e.target.value })}
-                                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none"
-                                            placeholder="John Doe"
-                                        />
+                                {!editingId && (
+                                    <div className="space-y-4">
+                                        <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-widest border-b border-blue-500/20 pb-2">Admin Account</h3>
+                                        <div>
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Admin Name</label>
+                                            <input
+                                                required
+                                                value={formData.adminName}
+                                                onChange={e => setFormData({ ...formData, adminName: e.target.value })}
+                                                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none"
+                                                placeholder="John Doe"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Admin Email</label>
+                                            <input
+                                                required
+                                                type="email"
+                                                value={formData.adminEmail}
+                                                onChange={e => setFormData({ ...formData, adminEmail: e.target.value })}
+                                                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none"
+                                                placeholder="admin@restaurant.com"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Admin Password</label>
+                                            <input
+                                                required
+                                                type="password"
+                                                value={formData.adminPassword}
+                                                onChange={e => setFormData({ ...formData, adminPassword: e.target.value })}
+                                                className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none"
+                                                placeholder="••••••••"
+                                            />
+                                        </div>
                                     </div>
-                                    <div>
-                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Admin Email</label>
-                                        <input
-                                            required
-                                            type="email"
-                                            value={formData.adminEmail}
-                                            onChange={e => setFormData({ ...formData, adminEmail: e.target.value })}
-                                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none"
-                                            placeholder="admin@restaurant.com"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Admin Password</label>
-                                        <input
-                                            required
-                                            type="password"
-                                            value={formData.adminPassword}
-                                            onChange={e => setFormData({ ...formData, adminPassword: e.target.value })}
-                                            className="w-full bg-gray-950 border border-gray-800 rounded-xl px-4 py-3 text-sm text-white focus:border-blue-500/50 outline-none"
-                                            placeholder="••••••••"
-                                        />
-                                    </div>
-                                </div>
+                                )}
                             </div>
 
                             <div className="flex items-center justify-end gap-4 pt-6 border-t border-gray-800">
@@ -355,8 +467,8 @@ export default function SuperAdminDashboard() {
                                     disabled={onboarding}
                                     className="brand-gradient px-8 py-3 rounded-xl text-xs font-black text-white glow-orange-sm active:scale-95 transition-all flex items-center gap-2"
                                 >
-                                    {onboarding ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
-                                    ONBOARD RESTAURANT
+                                    {onboarding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pencil className="w-4 h-4" />}
+                                    {editingId ? 'UPDATE SETTINGS' : 'ONBOARD RESTAURANT'}
                                 </button>
                             </div>
                         </form>

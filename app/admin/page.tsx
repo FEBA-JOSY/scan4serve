@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sidebar } from '@/components/sidebar'
 import { toast } from 'sonner'
@@ -72,12 +72,39 @@ export default function AdminDashboard() {
         }
     }
 
+    async function toggleRestaurantStatus() {
+        if (!profile?.restaurantId) return;
+        try {
+            const newStatus = !restaurantForm?.isActive;
+            const response = await fetch('/api/restaurant', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: profile.restaurantId,
+                    isActive: newStatus
+                })
+            })
+            const result = await response.json()
+            if (result.success) {
+                toast.success(newStatus ? 'Ordering Activated! 🚀' : 'Ordering Deactivated 🛑')
+                setRestaurantForm({ ...restaurantForm, isActive: newStatus })
+                fetchProfile()
+            } else {
+                throw new Error(result.message || 'Status update failed')
+            }
+        } catch (err: any) {
+            toast.error(err.message || 'Status update failed')
+        }
+    }
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
     return (
         <div className="flex h-screen bg-gray-950 overflow-hidden">
             <Sidebar
                 role={profile?.role || 'admin'}
                 userName={profile?.name || 'Admin'}
-                restaurantName={profile?.restaurants?.name}
+                restaurantName={profile?.restaurant?.name || 'Restaurant Admin'}
             />
 
             <main className="flex-1 flex flex-col min-w-0">
@@ -106,16 +133,36 @@ export default function AdminDashboard() {
                                 <div className="h-32 brand-gradient opacity-10" />
                                 <div className="px-8 pb-8 -mt-12 flex flex-col md:flex-row items-center md:items-end gap-6">
                                     <div className="w-32 h-32 bg-gray-950 border-4 border-gray-900 rounded-3xl overflow-hidden shadow-2xl relative group">
-                                        {profile?.restaurants?.logo_url ? (
-                                            <img src={profile.restaurants.logo_url} className="w-full h-full object-cover" alt="" />
+                                        {restaurantForm?.logoUrl || profile?.restaurant?.logoUrl ? (
+                                            <img src={restaurantForm.logoUrl || profile.restaurant.logoUrl} className="w-full h-full object-cover" alt="" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-800 bg-gray-900">
                                                 <Camera className="w-10 h-10" />
                                             </div>
                                         )}
-                                        <button className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            type="button"
+                                            onClick={() => fileInputRef.current?.click()}
+                                            className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                        >
                                             <Plus className="w-8 h-8 text-white" />
                                         </button>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            className="hidden"
+                                            accept="image/*"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0]
+                                                if (file) {
+                                                    const reader = new FileReader()
+                                                    reader.onloadend = () => {
+                                                        setRestaurantForm({ ...restaurantForm, logoUrl: reader.result as string })
+                                                    }
+                                                    reader.readAsDataURL(file)
+                                                }
+                                            }}
+                                        />
                                     </div>
                                     <div className="flex-1 text-center md:text-left">
                                         <h3 className="text-2xl font-black text-white flex items-center justify-center md:justify-start gap-2">
@@ -219,27 +266,47 @@ export default function AdminDashboard() {
                                     <div className="glass-card p-6 bg-orange-500/5 border-orange-500/10">
                                         <h4 className="text-xs font-black text-orange-500 uppercase tracking-widest mb-4">Quick Links</h4>
                                         <div className="space-y-2">
-                                            <button type="button" className="w-full p-3 rounded-xl bg-gray-900/50 border border-gray-800 text-left text-xs font-bold text-gray-300 hover:border-orange-500/30 transition-all flex items-center justify-between">
-                                                View Live Menu <Globe className="w-3.5 h-3.5 opacity-40" />
+                                            <button
+                                                type="button"
+                                                onClick={() => window.open(`/menu/${profile?.restaurantId}/1`, '_blank')}
+                                                className="w-full p-3 rounded-xl bg-gray-900/50 border border-gray-800 text-left text-xs font-bold text-gray-300 hover:border-orange-500/30 transition-all flex items-center justify-between group"
+                                            >
+                                                View Live Menu <Globe className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
                                             </button>
-                                            <button type="button" className="w-full p-3 rounded-xl bg-gray-900/50 border border-gray-800 text-left text-xs font-bold text-gray-300 hover:border-orange-500/30 transition-all flex items-center justify-between">
-                                                Download QR Pack <Download className="w-3.5 h-3.5 opacity-40" />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const qrUrl = `/api/admin/qr-pack?restaurantId=${profile?.restaurantId}`;
+                                                    const link = document.createElement('a');
+                                                    link.href = qrUrl;
+                                                    link.download = `qr-pack-${profile?.restaurant?.name || 'restaurant'}.zip`;
+                                                    link.click();
+                                                }}
+                                                className="w-full p-3 rounded-xl bg-gray-900/50 border border-gray-800 text-left text-xs font-bold text-gray-300 hover:border-orange-500/30 transition-all flex items-center justify-between group"
+                                            >
+                                                Download QR Pack <Download className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
                                             </button>
-                                            <button type="button" className="w-full p-3 rounded-xl bg-gray-900/50 border border-gray-800 text-left text-xs font-bold text-gray-300 hover:border-red-500/30 transition-all flex items-center justify-between">
-                                                Contact Support <Mail className="w-3.5 h-3.5 opacity-40" />
+                                            <button
+                                                type="button"
+                                                onClick={() => window.location.href = 'mailto:support@scan4serve.com?subject=Support Request from ' + (profile?.restaurant?.name || 'Admin')}
+                                                className="w-full p-3 rounded-xl bg-gray-900/50 border border-gray-800 text-left text-xs font-bold text-gray-300 hover:border-red-500/30 transition-all flex items-center justify-between group"
+                                            >
+                                                Contact Support <Mail className="w-3.5 h-3.5 opacity-40 group-hover:opacity-100 transition-opacity" />
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div className="p-6 bg-red-500/10 border border-red-500/20 rounded-2xl">
-                                        <h4 className="flex items-center gap-2 text-[10px] font-black text-red-500 uppercase tracking-widest mb-2">
-                                            <AlertTriangle className="w-3.5 h-3.5" /> Stop Service
+                                    <div className={cn("p-6 border rounded-2xl", restaurantForm?.isActive ? "bg-red-500/10 border-red-500/20" : "bg-green-500/10 border-green-500/20")}>
+                                        <h4 className={cn("flex items-center gap-2 text-[10px] font-black uppercase tracking-widest mb-2", restaurantForm?.isActive ? "text-red-500" : "text-green-500")}>
+                                            <AlertTriangle className="w-3.5 h-3.5" /> {restaurantForm?.isActive ? "Stop Service" : "Start Service"}
                                         </h4>
-                                        <p className="text-[10px] text-red-500/60 leading-relaxed mb-4">
-                                            Temporarily disable your online menu. Customers won't be able to place new orders.
+                                        <p className={cn("text-[10px] leading-relaxed mb-4", restaurantForm?.isActive ? "text-red-500/60" : "text-green-500/60")}>
+                                            {restaurantForm?.isActive
+                                                ? "Temporarily disable your online menu. Customers won't be able to place new orders."
+                                                : "Enable your online menu. Customers will be able to place new orders."}
                                         </p>
-                                        <button className="w-full py-2 bg-red-500 text-white text-[10px] font-black uppercase rounded-lg hover:bg-red-600 transition-colors">
-                                            Deactivate Ordering
+                                        <button type="button" onClick={toggleRestaurantStatus} className={cn("w-full py-2 text-white text-[10px] font-black uppercase rounded-lg transition-colors", restaurantForm?.isActive ? "bg-red-500 hover:bg-red-600" : "bg-green-500 hover:bg-green-600")}>
+                                            {restaurantForm?.isActive ? "Deactivate Ordering" : "Activate Ordering"}
                                         </button>
                                     </div>
                                 </div>

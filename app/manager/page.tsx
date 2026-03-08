@@ -1,32 +1,45 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
+import Image from 'next/image'
+import { useRouter, usePathname } from 'next/navigation'
 import { Sidebar } from '@/components/sidebar'
 import { toast } from 'sonner'
 import {
     LayoutDashboard, ChefHat, Table2, Users,
-    BarChart3, Plus, Search, Edit2, Trash2,
-    Download, Filter, TrendingUp, ShoppingBag,
-    DollarSign, Clock, QrCode, Save, X,
-    Loader2, ImageIcon, MoreVertical
+    BarChart3, Plus, Edit2, Trash2,
+    Download, TrendingUp, ShoppingBag,
+    DollarSign, QrCode, X,
+    Loader2, ImageIcon, Share2, Clock,
+    CheckCircle2, AlertCircle, FileText,
+    Calendar, Filter
 } from 'lucide-react'
 import { cn, formatCurrency } from '@/lib/utils'
-import type { User, Restaurant, MenuItem, Category, Table } from '@/types'
+import type { User, MenuItem, Category, Table } from '@/types'
 
-type ManagerTab = 'overview' | 'menu' | 'tables' | 'staff'
+type ManagerTab = 'overview' | 'menu' | 'tables' | 'staff' | 'orders' | 'reports'
 
-export default function ManagerDashboard() {
-    const [profile, setProfile] = useState<any>(null)
-    const [activeTab, setActiveTab] = useState<ManagerTab>('overview')
+export default function ManagerDashboard({ initialTab = 'overview' }: { initialTab?: ManagerTab } = {}) {
+    const [profile, setProfile] = useState<User | null>(null)
+    const [activeTab, setActiveTab] = useState<ManagerTab>(initialTab)
     const [loading, setLoading] = useState(true)
     const router = useRouter()
+    const pathname = usePathname()
+
+    useEffect(() => {
+        // if we landed on a deep route like /manager/menu set tab accordingly
+        if (pathname && pathname.endsWith('/menu')) setActiveTab('menu')
+        if (pathname && pathname.endsWith('/tables')) setActiveTab('tables')
+        if (pathname && pathname.endsWith('/staff')) setActiveTab('staff')
+        if (pathname && pathname.endsWith('/orders')) setActiveTab('orders')
+        if (pathname && pathname.endsWith('/reports')) setActiveTab('reports')
+    }, [pathname])
 
     useEffect(() => {
         fetchProfile()
     }, [])
 
-    async function fetchProfile() {
+    const fetchProfile = useCallback(async () => {
         try {
             const res = await fetch('/api/auth/me')
             const json = await res.json()
@@ -35,18 +48,20 @@ export default function ManagerDashboard() {
             } else {
                 router.push('/login')
             }
-        } catch (e) {
+        } catch {
             toast.error('Auth failed')
         } finally {
             setLoading(false)
         }
-    }
+    }, [router])
 
     const tabs = [
         { id: 'overview', label: 'Overview', icon: LayoutDashboard },
         { id: 'menu', label: 'Menu Management', icon: ChefHat },
+        { id: 'orders', label: 'Orders', icon: ShoppingBag },
         { id: 'tables', label: 'Tables & QR', icon: Table2 },
         { id: 'staff', label: 'Staff Management', icon: Users },
+        { id: 'reports', label: 'Reports', icon: FileText },
     ]
 
     return (
@@ -54,7 +69,7 @@ export default function ManagerDashboard() {
             <Sidebar
                 role={profile?.role || 'manager'}
                 userName={profile?.name || 'Manager'}
-                restaurantName={profile?.restaurant?.name}
+                restaurantName={profile?.name}
             />
 
             <main className="flex-1 flex flex-col min-w-0">
@@ -86,10 +101,12 @@ export default function ManagerDashboard() {
                         </div>
                     ) : (
                         <>
-                            {activeTab === 'overview' && <OverviewTab restaurantId={profile?.restaurantId} />}
-                            {activeTab === 'menu' && <MenuTab restaurantId={profile?.restaurantId} />}
-                            {activeTab === 'tables' && <TablesTab restaurantId={profile?.restaurantId} />}
-                            {activeTab === 'staff' && <StaffTab restaurantId={profile?.restaurantId} profile={profile} />}
+                            {activeTab === 'overview' && profile?.restaurantId && <OverviewTab restaurantId={profile.restaurantId} />}
+                            {activeTab === 'menu' && profile?.restaurantId && <MenuTab restaurantId={profile.restaurantId} />}
+                            {activeTab === 'orders' && profile?.restaurantId && <OrdersTab restaurantId={profile.restaurantId} />}
+                            {activeTab === 'reports' && profile?.restaurantId && <ReportsTab restaurantId={profile.restaurantId} />}
+                            {activeTab === 'tables' && profile?.restaurantId && <TablesTab restaurantId={profile.restaurantId} />}
+                            {activeTab === 'staff' && profile?.restaurantId && profile && <StaffTab restaurantId={profile.restaurantId} profile={profile} />}
                         </>
                     )}
                 </div>
@@ -98,15 +115,19 @@ export default function ManagerDashboard() {
     )
 }
 
-function OverviewTab({ restaurantId }: { restaurantId?: string }) {
-    const [stats, setStats] = useState<any>(null)
+interface AnalyticsData {
+    totalOrders: number
+    revenueToday: number
+    totalRevenue: number
+    peakHours: Array<{ hour: number; count: number }>
+    bestSellers: Array<{ name: string; count: number; revenue: number }>
+}
+
+function OverviewTab({ restaurantId }: { restaurantId: string }) {
+    const [stats, setStats] = useState<AnalyticsData | null>(null)
     const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        if (restaurantId) fetchAnalytics()
-    }, [restaurantId])
-
-    async function fetchAnalytics() {
+    const fetchAnalytics = useCallback(async () => {
         try {
             const res = await fetch(`/api/manager/analytics?restaurantId=${restaurantId}`)
             const json = await res.json()
@@ -114,7 +135,11 @@ function OverviewTab({ restaurantId }: { restaurantId?: string }) {
         } finally {
             setLoading(false)
         }
-    }
+    }, [restaurantId])
+
+    useEffect(() => {
+        if (restaurantId) fetchAnalytics()
+    }, [restaurantId, fetchAnalytics])
 
     if (loading) return null
 
@@ -154,9 +179,9 @@ function OverviewTab({ restaurantId }: { restaurantId?: string }) {
                     {/* Simple Peak Hours Visualizer */}
                     <div className="h-48 flex items-end gap-2 px-2">
                         {[...Array(24)].map((_, i) => {
-                            const hourData = stats?.peakHours?.find((h: any) => h.hour === i)
+                            const hourData = stats?.peakHours?.find((h) => h.hour === i)
                             const count = hourData?.count || 0
-                            const maxCount = Math.max(...(stats?.peakHours?.map((h: any) => h.count) || [1]))
+                            const maxCount = Math.max(...(stats?.peakHours?.map((h) => h.count) || [1]))
                             const height = count ? Math.max((count / maxCount) * 100, 5) : 2
                             return (
                                 <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
@@ -186,7 +211,7 @@ function OverviewTab({ restaurantId }: { restaurantId?: string }) {
                         Best Sellers
                     </h3>
                     <div className="space-y-4">
-                        {stats?.bestSellers?.map((item: any, idx: number) => (
+                        {stats?.bestSellers?.map((item, idx) => (
                             <div key={item.name} className="flex items-center justify-between p-3 bg-gray-900/40 rounded-xl border border-gray-800/60">
                                 <div className="flex items-center gap-4">
                                     <span className="text-xs font-black text-gray-700 w-4">{idx + 1}</span>
@@ -208,29 +233,44 @@ function OverviewTab({ restaurantId }: { restaurantId?: string }) {
 function MenuTab({ restaurantId }: { restaurantId?: string }) {
     const [items, setItems] = useState<MenuItem[]>([])
     const [categories, setCategories] = useState<Category[]>([])
-    const [loading, setLoading] = useState(true)
     const [modalOpen, setModalOpen] = useState(false)
-    const [editingItem, setEditingItem] = useState<any>(null)
+    const [editingItem, setEditingItem] = useState<MenuItem | undefined>(undefined)
+
+    const fetchMenu = useCallback(async () => {
+        if (!restaurantId) return
+        const res = await fetch(`/api/manager/menu?restaurantId=${restaurantId}`)
+        const json = await res.json()
+        if (json.success) setItems(json.data)
+    }, [restaurantId])
+
+    const fetchCategories = useCallback(async () => {
+        if (!restaurantId) return
+        const res = await fetch(`/api/manager/categories?restaurantId=${restaurantId}`)
+        const json = await res.json()
+        if (json.success) {
+            setCategories(json.data)
+            // if no categories exist, seed defaults
+            if (Array.isArray(json.data) && json.data.length === 0) {
+                const defaults = ['Starters', 'Soups', 'Salads', 'Main Course', 'Sides', 'Desserts', 'Beverages', 'Specials']
+                await fetch('/api/manager/categories', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'seed', restaurantId, categories: defaults })
+                })
+                // refetch after seeding
+                const r2 = await fetch(`/api/manager/categories?restaurantId=${restaurantId}`)
+                const j2 = await r2.json()
+                if (j2.success) setCategories(j2.data)
+            }
+        }
+    }, [restaurantId])
 
     useEffect(() => {
         if (restaurantId) {
             fetchMenu()
             fetchCategories()
         }
-    }, [restaurantId])
-
-    async function fetchMenu() {
-        const res = await fetch(`/api/manager/menu?restaurantId=${restaurantId}`)
-        const json = await res.json()
-        if (json.success) setItems(json.data)
-        setLoading(false)
-    }
-
-    async function fetchCategories() {
-        const res = await fetch(`/api/manager/categories?restaurantId=${restaurantId}`)
-        const json = await res.json()
-        if (json.success) setCategories(json.data)
-    }
+    }, [restaurantId, fetchMenu, fetchCategories])
 
     async function handleDelete(id: string) {
         if (!confirm('Are you sure you want to delete this dish?')) return
@@ -256,7 +296,7 @@ function MenuTab({ restaurantId }: { restaurantId?: string }) {
             <div className="flex items-center justify-between">
                 <h3 className="font-bold text-white text-lg">Menu Items ({items.length})</h3>
                 <button
-                    onClick={() => { setEditingItem(null); setModalOpen(true); }}
+                    onClick={() => { setEditingItem(undefined); setModalOpen(true); }}
                     className="flex items-center gap-2 brand-gradient px-4 py-2 rounded-xl text-xs font-black text-white glow-orange-sm hover:scale-[1.02] transition-transform"
                 >
                     <Plus className="w-4 h-4" /> Add New Dish
@@ -268,7 +308,7 @@ function MenuTab({ restaurantId }: { restaurantId?: string }) {
                     <div key={item.id} className="glass-card group overflow-hidden border-gray-800/40">
                         <div className="h-40 bg-gray-900 relative overflow-hidden">
                             {item.imageUrl ? (
-                                <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                <Image src={item.imageUrl} alt={item.name} fill className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
                             ) : (
                                 <div className="w-full h-full flex items-center justify-center text-gray-800">
                                     <ImageIcon className="w-12 h-12" />
@@ -282,7 +322,7 @@ function MenuTab({ restaurantId }: { restaurantId?: string }) {
                                     {item.isVeg ? 'Veg' : 'Non-Veg'}
                                 </span>
                                 <span className="bg-black/60 backdrop-blur px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest text-white">
-                                    {(item as any).categories?.name}
+                                    {item.category?.name}
                                 </span>
                             </div>
                         </div>
@@ -334,12 +374,13 @@ function MenuTab({ restaurantId }: { restaurantId?: string }) {
     )
 }
 
-function MenuModal({ restaurantId, categories, item, onClose }: { restaurantId: string; categories: Category[]; item?: any; onClose: () => void }) {
+function MenuModal({ restaurantId, categories, item, onClose }: { restaurantId: string; categories: Category[]; item?: MenuItem; onClose: () => void }) {
     const [loading, setLoading] = useState(false)
     const [form, setForm] = useState({
         name: item?.name || '',
         price: item?.price || '',
         description: item?.description || '',
+        // keep camelCase internally for ease of use in the UI
         categoryId: item?.categoryId || (categories[0]?.id || ''),
         isVeg: item?.isVeg ?? true,
         imageUrl: item?.imageUrl || '',
@@ -350,10 +391,24 @@ function MenuModal({ restaurantId, categories, item, onClose }: { restaurantId: 
         e.preventDefault()
         setLoading(true)
         const method = item ? 'PATCH' : 'POST'
+        // convert our camelCase form to the snake_case API contract
+        const payload: Record<string, unknown> = {
+            restaurant_id: restaurantId,
+            name: form.name,
+            description: form.description,
+            price: form.price,
+            category_id: form.categoryId,
+            image_url: form.imageUrl,
+            is_veg: form.isVeg,
+            prep_time_minutes: form.prepTimeMinutes,
+            available: true // default for new/updated items
+        }
+        if (item?.id) payload.id = item.id
+
         const res = await fetch('/api/manager/menu', {
             method,
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...form, restaurantId: restaurantId, id: item?.id })
+            body: JSON.stringify(payload)
         })
         if (res.ok) {
             toast.success(item ? 'Dish updated!' : 'New dish added!')
@@ -365,7 +420,7 @@ function MenuModal({ restaurantId, categories, item, onClose }: { restaurantId: 
     }
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
             <div className="relative w-full max-w-xl glass-card p-8 bg-gray-900 border-orange-500/20 shadow-2xl slide-in">
                 <div className="flex justify-between items-center mb-8">
@@ -385,7 +440,7 @@ function MenuModal({ restaurantId, categories, item, onClose }: { restaurantId: 
                         </div>
                         <div>
                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block">Category</label>
-                            <select value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })} className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 text-white text-sm focus:border-orange-500/50 appearance-none">
+                                            <select value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })} className="w-full bg-gray-950/50 border border-gray-800 rounded-xl px-4 py-3 text-white text-sm focus:border-orange-500/50 appearance-none">
                                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
                             </select>
                         </div>
@@ -423,20 +478,347 @@ function MenuModal({ restaurantId, categories, item, onClose }: { restaurantId: 
     )
 }
 
-function TablesTab({ restaurantId }: { restaurantId?: string }) {
-    const [tables, setTables] = useState<Table[]>([])
+function ReportsTab({ restaurantId }: { restaurantId?: string }) {
+    const [reportData, setReportData] = useState<any>(null)
     const [loading, setLoading] = useState(true)
+    const [dateRange, setDateRange] = useState({
+        startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days ago
+        endDate: new Date().toISOString().split('T')[0]
+    })
+
+    const fetchReports = useCallback(async () => {
+        if (!restaurantId) return
+        setLoading(true)
+        try {
+            const res = await fetch(
+                `/api/manager/reports?restaurantId=${restaurantId}&startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`
+            )
+            const json = await res.json()
+            if (json.success) {
+                setReportData(json.data)
+            }
+        } catch (e) {
+            toast.error('Failed to fetch reports')
+            console.error(e)
+        } finally {
+            setLoading(false)
+        }
+    }, [restaurantId, dateRange])
 
     useEffect(() => {
-        if (restaurantId) fetchTables()
+        if (restaurantId) fetchReports()
+    }, [restaurantId, fetchReports])
+
+    const handleExport = () => {
+        if (!reportData) return
+        const csv = [
+            ['Date Range', `${dateRange.startDate} to ${dateRange.endDate}`],
+            [],
+            ['Metric', 'Value'],
+            ['Total Orders', reportData.totalOrders],
+            ['Total Revenue', formatCurrency(reportData.totalRevenue)],
+            ['Average Order Value', formatCurrency(reportData.avgOrderValue)],
+            ['Total Items Sold', reportData.totalItemsSold],
+            [],
+            ['Top Items', 'Quantity', 'Revenue'],
+            ...reportData.topItems.map((item: any) => [item.name, item.count, formatCurrency(item.revenue)])
+        ]
+            .map(row => row.map(cell => `"${cell}"`).join(','))
+            .join('\n')
+
+        const blob = new Blob([csv], { type: 'text/csv' })
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `report-${dateRange.startDate}-${dateRange.endDate}.csv`
+        a.click()
+        window.URL.revokeObjectURL(url)
+        toast.success('Report exported!')
+    }
+
+    if (loading) {
+        return <div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 text-orange-500 animate-spin" /></div>
+    }
+
+    return (
+        <div className="space-y-6 fade-in">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div>
+                    <h3 className="font-bold text-white text-lg mb-2">Business Reports</h3>
+                    <p className="text-gray-500 text-xs">Analyze your restaurant's performance</p>
+                </div>
+                <button
+                    onClick={handleExport}
+                    className="flex items-center gap-2 brand-gradient px-4 py-2 rounded-xl text-xs font-black text-white glow-orange-sm"
+                >
+                    <Download className="w-4 h-4" /> Export CSV
+                </button>
+            </div>
+
+            <div className="glass-card p-4 border border-gray-800/40 flex gap-4">
+                <div className="flex-1">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">Start Date</label>
+                    <input
+                        type="date"
+                        value={dateRange.startDate}
+                        onChange={(e) => setDateRange({ ...dateRange, startDate: e.target.value })}
+                        className="w-full bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2 text-white text-sm"
+                    />
+                </div>
+                <div className="flex-1">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-2">End Date</label>
+                    <input
+                        type="date"
+                        value={dateRange.endDate}
+                        onChange={(e) => setDateRange({ ...dateRange, endDate: e.target.value })}
+                        className="w-full bg-gray-950/50 border border-gray-800 rounded-lg px-3 py-2 text-white text-sm"
+                    />
+                </div>
+                <div className="flex items-end">
+                    <button
+                        onClick={fetchReports}
+                        className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 px-4 py-2 rounded-lg text-white text-xs font-bold transition-all"
+                    >
+                        <Filter className="w-4 h-4" /> Apply
+                    </button>
+                </div>
+            </div>
+
+            {reportData ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="glass-card p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Total Orders</p>
+                            <ShoppingBag className="w-5 h-5 text-blue-400" />
+                        </div>
+                        <p className="text-2xl font-bold text-white">{reportData.totalOrders}</p>
+                    </div>
+
+                    <div className="glass-card p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Total Revenue</p>
+                            <DollarSign className="w-5 h-5 text-green-400" />
+                        </div>
+                        <p className="text-2xl font-bold text-white">{formatCurrency(reportData.totalRevenue)}</p>
+                    </div>
+
+                    <div className="glass-card p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Avg Order Value</p>
+                            <BarChart3 className="w-5 h-5 text-orange-400" />
+                        </div>
+                        <p className="text-2xl font-bold text-white">{formatCurrency(reportData.avgOrderValue)}</p>
+                    </div>
+
+                    <div className="glass-card p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest">Items Sold</p>
+                            <TrendingUp className="w-5 h-5 text-purple-400" />
+                        </div>
+                        <p className="text-2xl font-bold text-white">{reportData.totalItemsSold}</p>
+                    </div>
+                </div>
+            ) : null}
+
+            {reportData?.topItems && reportData.topItems.length > 0 && (
+                <div className="glass-card p-6 border border-gray-800/40">
+                    <h4 className="font-bold text-white mb-4">Top Selling Items</h4>
+                    <div className="space-y-3">
+                        {reportData.topItems.map((item: any, idx: number) => (
+                            <div key={idx} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg border border-gray-800/30">
+                                <div>
+                                    <p className="font-bold text-white">{item.name}</p>
+                                    <p className="text-xs text-gray-500">{item.count} sold</p>
+                                </div>
+                                <p className="font-bold text-orange-400">{formatCurrency(item.revenue)}</p>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+interface OrderData {
+    id: string
+    tableNumber: number
+    items: Array<{ name: string; quantity: number; price: number }>
+    totalAmount: string | number
+    status: string
+    paymentStatus: string
+    createdAt: string
+}
+
+function OrdersTab({ restaurantId }: { restaurantId?: string }) {
+    const [orders, setOrders] = useState<OrderData[]>([])
+    const [loading, setLoading] = useState(true)
+    const [filter, setFilter] = useState<'all' | 'placed' | 'preparing' | 'ready' | 'served' | 'completed'>('all')
+
+    const fetchOrders = useCallback(async () => {
+        if (!restaurantId) return
+        setLoading(true)
+        try {
+            const res = await fetch(`/api/manager/orders?restaurantId=${restaurantId}`)
+            const json = await res.json()
+            if (json.success) {
+                setOrders(json.data || [])
+            }
+        } catch (e) {
+            toast.error('Failed to fetch orders')
+            console.error(e)
+        } finally {
+            setLoading(false)
+        }
     }, [restaurantId])
 
-    async function fetchTables() {
+    useEffect(() => {
+        if (restaurantId) fetchOrders()
+        const interval = setInterval(() => fetchOrders(), 10000) // Refresh every 10 seconds
+        return () => clearInterval(interval)
+    }, [restaurantId, fetchOrders])
+
+    const updateOrderStatus = useCallback(async (orderId: string, newStatus: string) => {
+        try {
+            const res = await fetch(`/api/manager/orders/${orderId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: newStatus })
+            })
+            if (res.ok) {
+                toast.success('Order status updated')
+                fetchOrders()
+            } else {
+                toast.error('Failed to update order')
+            }
+        } catch (e) {
+            toast.error('Error updating order')
+            console.error(e)
+        }
+    }, [fetchOrders])
+
+    const filteredOrders = filter === 'all' 
+        ? orders 
+        : orders.filter(o => o.status === filter)
+
+    const getStatusColor = (status: string) => {
+        switch (status) {
+            case 'placed': return 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+            case 'preparing': return 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
+            case 'ready': return 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+            case 'served': return 'bg-green-500/10 text-green-400 border-green-500/30'
+            case 'completed': return 'bg-gray-500/10 text-gray-400 border-gray-500/30'
+            default: return 'bg-gray-500/10 text-gray-400 border-gray-500/30'
+        }
+    }
+
+    const getStatusIcon = (status: string) => {
+        switch (status) {
+            case 'placed': return <Clock className="w-4 h-4" />
+            case 'preparing': return <Clock className="w-4 h-4" />
+            case 'ready': return <AlertCircle className="w-4 h-4" />
+            case 'served': return <CheckCircle2 className="w-4 h-4" />
+            case 'completed': return <CheckCircle2 className="w-4 h-4" />
+            default: return <Clock className="w-4 h-4" />
+        }
+    }
+
+    const statusOptions = ['placed', 'preparing', 'ready', 'served', 'completed']
+
+    if (loading) {
+        return <div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 text-orange-500 animate-spin" /></div>
+    }
+
+    return (
+        <div className="space-y-6 fade-in">
+            <div>
+                <h3 className="font-bold text-white text-lg mb-4">Restaurant Orders</h3>
+                <div className="flex gap-2 flex-wrap">
+                    {(['all', 'placed', 'preparing', 'ready', 'served', 'completed'] as const).map(status => (
+                        <button
+                            key={status}
+                            onClick={() => setFilter(status)}
+                            className={cn(
+                                "px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-all",
+                                filter === status
+                                    ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
+                                    : "bg-gray-800/50 text-gray-400 hover:text-gray-300"
+                            )}
+                        >
+                            {status === 'all' ? 'All Orders' : status.charAt(0).toUpperCase() + status.slice(1)}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {filteredOrders.length === 0 ? (
+                <div className="glass-card p-12 text-center">
+                    <ShoppingBag className="w-12 h-12 text-gray-700 mx-auto mb-4" />
+                    <p className="text-gray-500">No {filter === 'all' ? '' : filter} orders yet</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {filteredOrders.map(order => (
+                        <div key={order.id} className="glass-card p-4 border border-gray-800/40 hover:border-orange-500/20 transition-all">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <h4 className="font-bold text-white">Table {order.tableNumber}</h4>
+                                        <span className={cn("px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border flex items-center gap-1", getStatusColor(order.status))}>
+                                            {getStatusIcon(order.status)}
+                                            {order.status}
+                                        </span>
+                                        <span className="text-[10px] text-gray-500">
+                                            {new Date(order.createdAt).toLocaleTimeString()}
+                                        </span>
+                                    </div>
+                                    <div className="ml-0">
+                                        <p className="text-xs text-gray-400 mb-2">
+                                            {order.items.map(item => `${item.quantity}x ${item.name}`).join(', ')}
+                                        </p>
+                                        <div className="flex items-center gap-4">
+                                            <span className="text-sm font-bold text-orange-400">
+                                                {formatCurrency(Number(order.totalAmount))}
+                                            </span>
+                                            <span className={cn("text-[10px] font-bold uppercase px-2 py-1 rounded-lg", 
+                                                order.paymentStatus === 'paid' 
+                                                    ? 'bg-green-500/10 text-green-400' 
+                                                    : 'bg-red-500/10 text-red-400'
+                                            )}>
+                                                Payment: {order.paymentStatus}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <select
+                                    value={order.status}
+                                    onChange={(e) => updateOrderStatus(order.id, e.target.value)}
+                                    className="bg-gray-900/50 border border-gray-800 rounded-lg px-3 py-2 text-xs font-bold text-white cursor-pointer hover:border-orange-500/50 focus:border-orange-500"
+                                >
+                                    {statusOptions.map(status => (
+                                        <option key={status} value={status}>
+                                            {status.charAt(0).toUpperCase() + status.slice(1)}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function TablesTab({ restaurantId }: { restaurantId?: string }) {
+    const [tables, setTables] = useState<Table[]>([])
+
+    const fetchTables = useCallback(async () => {
+        if (!restaurantId) return
         const res = await fetch(`/api/manager/tables?restaurantId=${restaurantId}`)
         const json = await res.json()
         if (json.success) setTables(json.data)
-        setLoading(false)
-    }
+    }, [restaurantId])
 
     async function addTable() {
         const lastNum = tables.length > 0 ? tables[tables.length - 1].tableNumber : 0
@@ -460,6 +842,20 @@ function TablesTab({ restaurantId }: { restaurantId?: string }) {
         }
     }
 
+    function shareQRLink(table: typeof tables[0]) {
+        const text = `Join us at Table #${table.tableNumber}: ${table.qrCodeUrl}`
+        if (navigator.share) {
+            navigator.share({ title: 'Scan4Serve Menu', text, url: table.qrCodeUrl })
+        } else {
+            navigator.clipboard.writeText(table.qrCodeUrl!)
+            toast.success('Link copied to clipboard!')
+        }
+    }
+
+    useEffect(() => {
+        if (restaurantId) fetchTables()
+    }, [restaurantId, fetchTables])
+
     return (
         <div className="space-y-6 fade-in">
             <div className="flex justify-between items-center">
@@ -478,17 +874,15 @@ function TablesTab({ restaurantId }: { restaurantId?: string }) {
             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
                 {tables.map(table => (
                     <div key={table.id} className="glass-card p-4 flex flex-col items-center group relative">
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => deleteTable(table.id)} className="p-1 text-gray-500 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity space-x-1 flex">
+                            <button onClick={() => shareQRLink(table)} className="p-1 text-gray-500 hover:text-blue-500" title="Share link"><Share2 className="w-3 h-3" /></button>
+                            <button onClick={() => deleteTable(table.id)} className="p-1 text-gray-500 hover:text-red-500" title="Delete table"><Trash2 className="w-3 h-3" /></button>
                         </div>
-                        <div className="w-full aspect-square brand-gradient rounded-2xl flex items-center justify-center mb-4 text-white relative">
+                        <div className="w-full aspect-square brand-gradient rounded-2xl flex items-center justify-center mb-4 text-white">
                             <QrCode className="w-1/2 h-1/2" />
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl cursor-pointer">
-                                <Download className="w-6 h-6" />
-                            </div>
                         </div>
                         <span className="text-xl font-black text-white">#{table.tableNumber}</span>
-                        <button className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1 hover:underline">Download QR</button>
+                        <button onClick={() => shareQRLink(table)} className="text-[8px] font-black text-orange-500 uppercase tracking-widest mt-1 hover:underline">Share Link</button>
                     </div>
                 ))}
             </div>
@@ -496,20 +890,19 @@ function TablesTab({ restaurantId }: { restaurantId?: string }) {
     )
 }
 
-function StaffTab({ restaurantId, profile }: { restaurantId?: string; profile: any }) {
+function StaffTab({ restaurantId, profile }: { restaurantId?: string; profile: User }) {
     const [staff, setStaff] = useState<User[]>([])
-    const [loading, setLoading] = useState(true)
 
-    useEffect(() => {
-        if (restaurantId) fetchStaff()
-    }, [restaurantId])
-
-    async function fetchStaff() {
+    const fetchStaff = useCallback(async () => {
+        if (!restaurantId) return
         const res = await fetch(`/api/manager/staff?restaurantId=${restaurantId}`)
         const json = await res.json()
         if (json.success) setStaff(json.data)
-        setLoading(false)
-    }
+    }, [restaurantId])
+
+    useEffect(() => {
+        if (restaurantId) fetchStaff()
+    }, [restaurantId, fetchStaff])
 
     return (
         <div className="space-y-6 fade-in">

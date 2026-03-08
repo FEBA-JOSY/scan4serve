@@ -1,23 +1,32 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { Sidebar } from '@/components/sidebar'
 import { toast } from 'sonner'
 import {
     Table2, Bell, CheckCircle2, History, Utensils,
     ArrowRight, UserCheck, Receipt, Wallet, ClipboardList,
-    AlertCircle, Clock
+    AlertCircle, Clock, X
 } from 'lucide-react'
 import { cn, formatCurrency, formatTime } from '@/lib/utils'
 import type { User, Restaurant, Table, Order } from '@/types'
 
-export default function WaiterDashboard() {
+type WaiterTab = 'tables' | 'notifications'
+
+export default function WaiterDashboard({ initialTab = 'tables' }: { initialTab?: WaiterTab } = {}) {
     const [profile, setProfile] = useState<any>(null)
     const [tables, setTables] = useState<(Table & { hasActiveOrder: boolean; hasReadyOrder: boolean; activeOrders: any[] })[]>([])
     const [loading, setLoading] = useState(true)
     const [selectedTable, setSelectedTable] = useState<any>(null)
+    const [activeTab, setActiveTab] = useState<WaiterTab>(initialTab)
     const router = useRouter()
+    const pathname = usePathname()
+
+    useEffect(() => {
+        if (pathname && pathname.endsWith('/notifications')) setActiveTab('notifications')
+        if (pathname && pathname.endsWith('/waiter') || pathname === '/waiter') setActiveTab('tables')
+    }, [pathname])
 
     useEffect(() => {
         fetchProfile()
@@ -94,29 +103,34 @@ export default function WaiterDashboard() {
 
             <main className="flex-1 flex flex-col min-w-0">
                 <header className="h-16 flex items-center justify-between px-8 border-b border-gray-800/60 glass z-20">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 brand-gradient rounded-xl flex items-center justify-center glow-orange-sm">
-                            <Table2 className="w-6 h-6 text-white" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-bold text-white tracking-tight">Table Overview</h2>
-                            <p className="text-gray-500 text-[10px] uppercase font-bold tracking-widest flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                                {tables.length} Tables Active
-                            </p>
-                        </div>
+                    <div>
+                        <h2 className="text-xl font-bold text-white tracking-tight">Waiter Hub</h2>
                     </div>
-                    <div className="flex gap-4">
-                        <div className="flex items-center gap-6 px-4 py-2 bg-gray-900/50 border border-gray-800 rounded-xl">
-                            <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-                                <span className="text-[10px] font-bold text-gray-400 uppercase">Ready for Pickup</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-blue-500" />
-                                <span className="text-[10px] font-bold text-gray-400 uppercase">Occupied</span>
-                            </div>
-                        </div>
+                    <div className="flex items-center gap-2 bg-gray-900 p-1 rounded-xl border border-gray-800">
+                        <button
+                            onClick={() => setActiveTab('tables')}
+                            className={cn(
+                                "flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200",
+                                activeTab === 'tables'
+                                    ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
+                                    : "text-gray-500 hover:text-gray-300"
+                            )}
+                        >
+                            <Table2 className="w-3.5 h-3.5" />
+                            Tables
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('notifications')}
+                            className={cn(
+                                "flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-200",
+                                activeTab === 'notifications'
+                                    ? "bg-orange-500 text-white shadow-lg shadow-orange-500/20"
+                                    : "text-gray-500 hover:text-gray-300"
+                            )}
+                        >
+                            <Bell className="w-3.5 h-3.5" />
+                            Notifications
+                        </button>
                     </div>
                 </header>
 
@@ -125,7 +139,7 @@ export default function WaiterDashboard() {
                         <div className="h-full flex items-center justify-center opacity-40">
                             <ClipboardList className="w-10 h-10 text-orange-500 animate-bounce" />
                         </div>
-                    ) : (
+                    ) : activeTab === 'tables' ? (
                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
                             {tables.map(table => (
                                 <button
@@ -169,6 +183,8 @@ export default function WaiterDashboard() {
                                 </button>
                             ))}
                         </div>
+                    ) : (
+                        <NotificationsTab restaurantId={profile?.restaurantId} />
                     )}
                 </div>
             </main>
@@ -208,7 +224,7 @@ export default function WaiterDashboard() {
                                                 )} />
                                                 <span className="text-xs font-bold text-white uppercase tracking-wider">{order.status}</span>
                                             </div>
-                                            <span className="text-xs text-gray-500">{formatTime(order.created_at)}</span>
+                                            <span className="text-xs text-gray-500">{formatTime(order.createdAt)}</span>
                                         </div>
 
                                         <div className="p-4 space-y-3">
@@ -258,6 +274,80 @@ export default function WaiterDashboard() {
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
+        </div>
+    )
+}
+
+function NotificationsTab({ restaurantId }: { restaurantId?: string }) {
+    const [notifications, setNotifications] = useState<any[]>([])
+    const [loading, setLoading] = useState(true)
+
+    useEffect(() => {
+        if (restaurantId) fetchNotifications()
+    }, [restaurantId])
+
+    const fetchNotifications = async () => {
+        if (!restaurantId) return
+        setLoading(true)
+        try {
+            const res = await fetch(`/api/waiter/notifications?restaurantId=${restaurantId}`)
+            const json = await res.json()
+            if (json.success) {
+                setNotifications(json.data || [])
+            }
+        } catch (e) {
+            toast.error('Failed to load notifications')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-full">
+                <Bell className="w-8 h-8 text-orange-500 animate-bounce" />
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4 fade-in">
+            <div>
+                <h3 className="font-bold text-white text-lg mb-4">Order Notifications</h3>
+                <p className="text-gray-400 text-sm">Recent updates and alerts for your restaurant</p>
+            </div>
+
+            {notifications.length === 0 ? (
+                <div className="glass-card p-12 text-center">
+                    <Bell className="w-12 h-12 text-gray-700 mx-auto mb-4" />
+                    <p className="text-gray-500">No notifications yet</p>
+                </div>
+            ) : (
+                <div className="space-y-3 max-w-2xl">
+                    {notifications.map((notif, idx) => (
+                        <div key={idx} className="glass-card p-4 border border-gray-800/40 hover:border-orange-500/20 transition-all">
+                            <div className="flex items-start gap-4">
+                                <div className="w-2 h-2 rounded-full bg-orange-500 mt-2 flex-shrink-0" />
+                                <div className="flex-1">
+                                    <h4 className="font-bold text-white">{notif.title}</h4>
+                                    <p className="text-sm text-gray-400 mt-1">{notif.message}</p>
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Table {notif.tableNumber} • {notif.timestamp}
+                                    </p>
+                                </div>
+                                <span className={cn(
+                                    "text-[10px] font-bold uppercase px-2 py-1 rounded-lg flex-shrink-0",
+                                    notif.type === 'ready' ? 'bg-orange-500/10 text-orange-400' :
+                                        notif.type === 'order' ? 'bg-blue-500/10 text-blue-400' :
+                                            'bg-gray-500/10 text-gray-400'
+                                )}>
+                                    {notif.type}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
         </div>

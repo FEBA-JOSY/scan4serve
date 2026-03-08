@@ -1,6 +1,5 @@
 import { prisma } from '@/lib/prisma'
 import { NextRequest, NextResponse } from 'next/server'
-import { Decimal } from '@prisma/client/runtime/library'
 
 // POST /api/customer/orders — place a new order
 export async function POST(req: NextRequest) {
@@ -22,6 +21,33 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ success: false, message: 'Restaurant cannot accept orders' }, { status: 403 })
         }
 
+        // Look up table by restaurant ID and table number (for QR code compatibility)
+        const tableNumber = parseInt(table_id, 10)
+        const table = isNaN(tableNumber) 
+            ? await prisma.table.findUnique({
+                where: { id: table_id },
+                select: { id: true, restaurantId: true, active: true }
+            })
+            : await prisma.table.findFirst({
+                where: { 
+                    restaurantId: restaurant_id,
+                    tableNumber: tableNumber
+                },
+                select: { id: true, restaurantId: true, active: true }
+            })
+
+        if (!table) {
+            return NextResponse.json({ success: false, message: `Table not found (searched for: ${table_id})` }, { status: 404 })
+        }
+
+        if (table.restaurantId !== restaurant_id) {
+            return NextResponse.json({ success: false, message: 'Table does not belong to this restaurant' }, { status: 400 })
+        }
+
+        if (!table.active) {
+            return NextResponse.json({ success: false, message: 'Table is not active' }, { status: 400 })
+        }
+
         // Calculate total
         const total_amount = (items as { price: number; quantity: number }[])
             .reduce((sum, item) => sum + item.price * item.quantity, 0)
@@ -29,9 +55,9 @@ export async function POST(req: NextRequest) {
         const order = await prisma.order.create({
             data: {
                 restaurantId: restaurant_id,
-                tableId: table_id,
+                tableId: table.id,
                 items,
-                totalAmount: new Decimal(total_amount),
+                totalAmount: total_amount,
                 specialInstructions: special_instructions || null,
                 status: 'placed',
                 paymentStatus: 'pending',

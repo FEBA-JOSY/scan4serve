@@ -42,6 +42,11 @@ export default withAuth(
                     return true
                 }
 
+                // Public API routes for customers (no authentication required)
+                if (pathname.startsWith('/api/customer')) {
+                    return true
+                }
+
                 return !!token
             },
         },
